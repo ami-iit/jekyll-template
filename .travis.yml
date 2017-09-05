@@ -11,9 +11,8 @@ env:
   global:
     # Website configuration
     - JEKYLL_FOLDER="jekyll"
-    - JEKYLL_FOLDER_ABS="$TRAVIS_BUILD_DIR/$JEKYLL_FOLDER"
     - JEKYLL_SITE_FOLDER="_site"
-    - JEKYLL_SITE_FOLDER_ABS="$JEKYLL_FOLDER_ABS/$JEKYLL_SITE_FOLDER"
+    - JEKYLL_FOLDER_ABS="$TRAVIS_BUILD_DIR/$JEKYLL_FOLDER"
     # Deploy configuration
     - BOT_USER_NAME="loc2bot"
     - UPSTREAM_TRIGGERING_BRANCH="master"
@@ -35,9 +34,20 @@ before_install:
     fi
 
 script:
+  # Travis only clones with a depth of 50, ending in detached state
+  - cd $HOME
+  - sudo rm -r $TRAVIS_BUILD_DIR && git clone https://github.com/$TRAVIS_REPO_SLUG.git $TRAVIS_BUILD_DIR
   - cd $TRAVIS_BUILD_DIR
   # Check the existence of the JEKYLL_SITE_FOLDER
-  - ls $JEKYLL_SITE_FOLDER_ABS >/dev/null
+  - ls $JEKYLL_FOLDER_ABS >/dev/null
+  # Prepare the cloned repository for deployment
+  # That means, override the current gh-pages branch with the new edits
+  - git checkout remotes/origin/$DEPLOY_BRANCH -b $DEPLOY_BRANCH
+  - git checkout master
+  - >-
+    if [ $JEKYLL_GENERATE_LOCALLY = true ] ; then
+      git subtree add --prefix $DEPLOY_FOLDER $(git rev-parse gh-pages)
+    fi
   # Build the website
   # (the image handles all permission issues may arise)
   - >-
@@ -57,8 +67,8 @@ after_success:
   # Deploy only commits hitting the upstream master
   - >-
     if [[ $TRAVIS_BRANCH = $UPSTREAM_TRIGGERING_BRANCH && \
-          $TRAVIS_PULL_REQUEST = false && \
-          -n $DEPLOY_TOKEN ]] ; then
+         $TRAVIS_PULL_REQUEST = false && \
+         -n $DEPLOY_TOKEN ]] ; then
       # Add a new remote containing the bot login credentials
       cd $TRAVIS_BUILD_DIR
       git remote add origin-botlogin https://$BOT_USER_NAME:$DEPLOY_TOKEN@github.com/$DEPLOY_REPOSITORY.git
@@ -71,9 +81,9 @@ after_success:
                  -m "Commit: https://github.com/$TRAVIS_REPO_SLUG/commit/$TRAVIS_COMMIT" \
                  --author "$COMMIT_AUTHOR" \
                  -- $DEPLOY_FOLDER
-      # Push the site folder to the upstream deployment branch (w/ force push support)
-      git subtree split --prefix $DEPLOY_FOLDER -b gh-pages-staging
-      git push --force origin-botlogin gh-pages-staging:$DEPLOY_BRANCH
+      # Push the site folder to the upstream deployment branch
+      git subtree split --rejoin --prefix $DEPLOY_FOLDER --branch $DEPLOY_BRANCH
+      git push --force origin-botlogin $DEPLOY_BRANCH
     else
       echo "Nothing to deploy"
     fi
